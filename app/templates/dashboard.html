@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>My Lifestyle Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>My Personalized Lifestyle Dashboard</h1>
+        <p class="subtitle">Phenotype: <strong>{{ rec.label }}</strong></p>
+
+        <div id="notif-status" class="notif-banner">
+            <button id="enable-notif-btn" class="btn">🔔 Enable Reminders</button>
+            <p id="notif-help" style="margin-top:8px;">Turn on notifications to get a reminder automatically at each time slot (morning/afternoon/evening/night) while this tab is open — just like a food delivery app reminder.</p>
+        </div>
+
+        <div class="nudge-grid">
+            <div class="nudge-card">
+                <h3>🌅 Morning <button class="test-btn" data-slot="morning">Test</button></h3>
+                <p><strong>Food:</strong> {{ rec.morning.food }}</p>
+                <p><strong>Exercise:</strong> {{ rec.morning.exercise }}</p>
+            </div>
+            <div class="nudge-card">
+                <h3>☀️ Afternoon <button class="test-btn" data-slot="afternoon">Test</button></h3>
+                <p><strong>Food:</strong> {{ rec.afternoon.food }}</p>
+                <p><strong>Exercise:</strong> {{ rec.afternoon.exercise }}</p>
+            </div>
+            <div class="nudge-card">
+                <h3>🌇 Evening <button class="test-btn" data-slot="evening">Test</button></h3>
+                <p><strong>Food:</strong> {{ rec.evening.food }}</p>
+                <p><strong>Exercise:</strong> {{ rec.evening.exercise }}</p>
+            </div>
+            <div class="nudge-card">
+                <h3>🌙 Night <button class="test-btn" data-slot="night">Test</button></h3>
+                <p><strong>Food:</strong> {{ rec.night.food }}</p>
+                <p><strong>Exercise:</strong> {{ rec.night.exercise }}</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // The recommendation data for this user's phenotype, passed from Flask
+        const recData = {
+            morning: {{ rec.morning | tojson }},
+            afternoon: {{ rec.afternoon | tojson }},
+            evening: {{ rec.evening | tojson }},
+            night: {{ rec.night | tojson }}
+        };
+
+        // Real time-slot windows (24-hour clock)
+        const slotWindows = {
+            morning:   { start: 6,  end: 11 },
+            afternoon: { start: 12, end: 16 },
+            evening:   { start: 17, end: 20 },
+            night:     { start: 21, end: 23 }
+        };
+
+        function sendNotification(slotName) {
+            const slot = recData[slotName];
+            const label = slotName.charAt(0).toUpperCase() + slotName.slice(1);
+            if (Notification.permission === "granted") {
+                new Notification(`${label} Reminder 🔔`, {
+                    body: `Food: ${slot.food}\nExercise: ${slot.exercise}`,
+                });
+            } else {
+                alert(`${label} Reminder\n\nFood: ${slot.food}\nExercise: ${slot.exercise}`);
+            }
+        }
+
+        // Enable notifications button
+        document.getElementById('enable-notif-btn').addEventListener('click', function () {
+            if (!("Notification" in window)) {
+                alert("This browser does not support notifications.");
+                return;
+            }
+            Notification.requestPermission().then(function (permission) {
+                if (permission === "granted") {
+                    document.getElementById('notif-help').textContent =
+                        "Reminders are ON. You'll get a notification automatically during each time slot while this tab stays open.";
+                } else {
+                    document.getElementById('notif-help').textContent =
+                        "Notifications were blocked. You can still use the 'Test' buttons on each card below.";
+                }
+            });
+        });
+
+        // Manual "Test" buttons - for demo purposes, works regardless of real time
+        document.querySelectorAll('.test-btn').forEach(function (btn) {
+            btn.addEventListener('click', function (e) {
+                e.preventDefault();
+                sendNotification(btn.dataset.slot);
+            });
+        });
+
+        // Real automatic checker - fires once per slot per day, based on actual clock time
+        function checkTimeAndNotify() {
+            const now = new Date();
+            const hour = now.getHours();
+            const todayKey = now.toISOString().split('T')[0]; // e.g. "2026-08-27"
+
+            for (const [slotName, window] of Object.entries(slotWindows)) {
+                if (hour >= window.start && hour <= window.end) {
+                    const storageKey = `notified_${slotName}_${todayKey}`;
+                    if (!localStorage.getItem(storageKey)) {
+                        sendNotification(slotName);
+                        localStorage.setItem(storageKey, "1");
+                    }
+                }
+            }
+        }
+
+        // Check every 60 seconds while the dashboard tab is open
+        setInterval(checkTimeAndNotify, 60000);
+        checkTimeAndNotify(); // also check immediately on page load
+    </script>
+</body>
+</html>

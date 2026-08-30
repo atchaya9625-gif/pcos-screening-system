@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Prediction History</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 13px; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #f0dce6; }
+        th { background: #fff0f6; color: #a3336b; }
+        tr:hover { background: #fdf2f8; }
+        .badge { padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+        .badge-positive { background: #ffe0ec; color: #d6336c; }
+        .badge-negative { background: #e0f8e9; color: #2b8a3e; }
+    </style>
+</head>
+<body>
+    <div class="container" style="max-width: 1000px;">
+        <h1>Prediction History</h1>
+        <p class="subtitle">All predictions made through this system, stored for tracking.</p>
+
+        {% if records %}
+        <table>
+            <tr>
+                <th>Date/Time</th>
+                <th>Result</th>
+                <th>Risk Score</th>
+                <th>Modality</th>
+                <th>Phenotype</th>
+            </tr>
+            {% for r in records %}
+            <tr>
+                <td>{{ r.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
+                <td>
+                    {% if r.prediction == 'PCOS Detected' %}
+                        <span class="badge badge-positive">{{ r.prediction }}</span>
+                    {% else %}
+                        <span class="badge badge-negative">{{ r.prediction }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ (r.risk_score * 100) | round(1) }}%</td>
+                <td>{{ r.modality_used }}</td>
+                <td>{{ r.phenotype }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% else %}
+        <p>No predictions yet. <a href="/predict">Make your first prediction</a>.</p>
+        {% endif %}
+    </div>
+</body>
+</html>

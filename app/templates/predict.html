@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>PCOS Risk Prediction</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>PCOS Risk Prediction</h1>
+        <p class="subtitle">Fill in your clinical details below. These 12 fields were selected as the most predictive features by our feature selection process.</p>
+
+        <form id="predict-form">
+            <label>Follicle Count - Right Ovary</label>
+            <input type="number" name="follicle_r" step="1" required>
+
+            <label>Follicle Count - Left Ovary</label>
+            <input type="number" name="follicle_l" step="1" required>
+
+            <label>Cycle Regularity</label>
+            <select name="cycle">
+                <option value="R">Regular</option>
+                <option value="I">Irregular</option>
+            </select>
+
+            <label>Cycle Length (days)</label>
+            <input type="number" name="cycle_length" step="1" value="28" required>
+
+            <label>AMH Level (ng/mL)</label>
+            <input type="number" name="amh" step="0.1" required>
+
+            <label>Prolactin - PRL (ng/mL)</label>
+            <input type="number" name="prl" step="0.1" required>
+
+            <label>FSH/LH Ratio</label>
+            <input type="number" name="fsh_lh" step="0.01" required>
+
+            <label>Weight Gain?</label>
+            <select name="weight_gain">
+                <option value="0">No</option>
+                <option value="1">Yes</option>
+            </select>
+
+            <label>Excess Hair Growth?</label>
+            <select name="hair_growth">
+                <option value="0">No</option>
+                <option value="1">Yes</option>
+            </select>
+
+            <label>Skin Darkening?</label>
+            <select name="skin_darkening">
+                <option value="0">No</option>
+                <option value="1">Yes</option>
+            </select>
+
+            <label>Pimples/Acne?</label>
+            <select name="pimples">
+                <option value="0">No</option>
+                <option value="1">Yes</option>
+            </select>
+
+            <label>Frequent Fast Food?</label>
+            <select name="fast_food">
+                <option value="0">No</option>
+                <option value="1">Yes</option>
+            </select>
+
+            <label>Ultrasound Image (optional - for multimodal prediction)</label>
+            <input type="file" name="ultrasound" accept="image/*">
+
+            <button type="submit" class="btn">Predict</button>
+        </form>
+        <div id="result"></div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/predict.js') }}"></script>
+</body>
+</html>
