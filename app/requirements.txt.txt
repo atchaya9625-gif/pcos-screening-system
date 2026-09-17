@@ -1,0 +1,11 @@
+flask
+pandas
+numpy
+scikit-learn
+xgboost
+shap
+tensorflow
+opencv-python
+openpyxl
+flask-sqlalchemy
+gunicorn
