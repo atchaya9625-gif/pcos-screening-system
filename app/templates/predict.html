@@ -2,76 +2,140 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PCOS Risk Prediction</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
+    <nav class="navbar">
+        <div class="nav-brand">🌸 PCOS AI Screening & Wellness</div>
+        <div class="nav-links">
+            <a href="/">Home</a>
+            <a href="/predict" class="active">Check Risk</a>
+            <a href="/dashboard">Lifestyle Dashboard</a>
+            <a href="/history">History</a>
+        </div>
+    </nav>
+
     <div class="container">
-        <h1>PCOS Risk Prediction</h1>
-        <p class="subtitle">Fill in your clinical details below. These 12 fields were selected as the most predictive features by our feature selection process.</p>
+        <div class="header-with-presets">
+            <div>
+                <h1>PCOS Risk Prediction</h1>
+                <p class="subtitle">Enter your clinical parameters below. These 12 features were selected through Mutual Information feature optimization (73% dimensionality reduction) for maximum diagnostic accuracy.</p>
+            </div>
+            <div class="preset-buttons">
+                <button type="button" id="btn-preset-pcos" class="btn-pill-preset">⚡ Load PCOS Demo Data</button>
+                <button type="button" id="btn-preset-normal" class="btn-pill-preset">🌿 Load Normal Demo Data</button>
+            </div>
+        </div>
 
         <form id="predict-form">
-            <label>Follicle Count - Right Ovary</label>
-            <input type="number" name="follicle_r" step="1" required>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Follicle Count - Right Ovary <span class="hint">(Normal: &lt; 10-12)</span></label>
+                    <input type="number" name="follicle_r" id="f_follicle_r" min="0" max="60" step="1" placeholder="e.g. 12" required>
+                </div>
 
-            <label>Follicle Count - Left Ovary</label>
-            <input type="number" name="follicle_l" step="1" required>
+                <div class="form-group">
+                    <label>Follicle Count - Left Ovary <span class="hint">(Normal: &lt; 10-12)</span></label>
+                    <input type="number" name="follicle_l" id="f_follicle_l" min="0" max="60" step="1" placeholder="e.g. 10" required>
+                </div>
 
-            <label>Cycle Regularity</label>
-            <select name="cycle">
-                <option value="R">Regular</option>
-                <option value="I">Irregular</option>
-            </select>
+                <div class="form-group">
+                    <label>Cycle Regularity</label>
+                    <select name="cycle" id="f_cycle">
+                        <option value="R">Regular (R)</option>
+                        <option value="I">Irregular (I)</option>
+                    </select>
+                </div>
 
-            <label>Cycle Length (days)</label>
-            <input type="number" name="cycle_length" step="1" value="28" required>
+                <div class="form-group">
+                    <label>Cycle Length (days) <span class="hint">(Normal: 21-35 days)</span></label>
+                    <input type="number" name="cycle_length" id="f_cycle_length" min="15" max="120" step="1" value="28" required>
+                </div>
 
-            <label>AMH Level (ng/mL)</label>
-            <input type="number" name="amh" step="0.1" required>
+                <div class="form-group">
+                    <label>AMH Level (ng/mL) <span class="hint">(Anti-Müllerian Hormone)</span></label>
+                    <input type="number" name="amh" id="f_amh" min="0" max="50" step="0.1" placeholder="e.g. 6.5" required>
+                </div>
 
-            <label>Prolactin - PRL (ng/mL)</label>
-            <input type="number" name="prl" step="0.1" required>
+                <div class="form-group">
+                    <label>Prolactin - PRL (ng/mL) <span class="hint">(Normal: 2-29 ng/mL)</span></label>
+                    <input type="number" name="prl" id="f_prl" min="0" max="150" step="0.1" placeholder="e.g. 20.0" required>
+                </div>
 
-            <label>FSH/LH Ratio</label>
-            <input type="number" name="fsh_lh" step="0.01" required>
+                <div class="form-group">
+                    <label>FSH / LH Ratio <span class="hint">(&lt; 1.0 indicates elevated LH)</span></label>
+                    <input type="number" name="fsh_lh" id="f_fsh_lh" min="0.01" max="20" step="0.01" placeholder="e.g. 0.8" required>
+                </div>
 
-            <label>Weight Gain?</label>
-            <select name="weight_gain">
-                <option value="0">No</option>
-                <option value="1">Yes</option>
-            </select>
+                <div class="form-group">
+                    <label>Weight Gain Tendency?</label>
+                    <select name="weight_gain" id="f_weight_gain">
+                        <option value="0">No</option>
+                        <option value="1">Yes</option>
+                    </select>
+                </div>
 
-            <label>Excess Hair Growth?</label>
-            <select name="hair_growth">
-                <option value="0">No</option>
-                <option value="1">Yes</option>
-            </select>
+                <div class="form-group">
+                    <label>Excess Hair Growth (Hirsutism)?</label>
+                    <select name="hair_growth" id="f_hair_growth">
+                        <option value="0">No</option>
+                        <option value="1">Yes</option>
+                    </select>
+                </div>
 
-            <label>Skin Darkening?</label>
-            <select name="skin_darkening">
-                <option value="0">No</option>
-                <option value="1">Yes</option>
-            </select>
+                <div class="form-group">
+                    <label>Skin Darkening (Acanthosis)?</label>
+                    <select name="skin_darkening" id="f_skin_darkening">
+                        <option value="0">No</option>
+                        <option value="1">Yes</option>
+                    </select>
+                </div>
 
-            <label>Pimples/Acne?</label>
-            <select name="pimples">
-                <option value="0">No</option>
-                <option value="1">Yes</option>
-            </select>
+                <div class="form-group">
+                    <label>Pimples / Acne?</label>
+                    <select name="pimples" id="f_pimples">
+                        <option value="0">No</option>
+                        <option value="1">Yes</option>
+                    </select>
+                </div>
 
-            <label>Frequent Fast Food?</label>
-            <select name="fast_food">
-                <option value="0">No</option>
-                <option value="1">Yes</option>
-            </select>
+                <div class="form-group">
+                    <label>Frequent Fast Food Consumption?</label>
+                    <select name="fast_food" id="f_fast_food">
+                        <option value="0">No</option>
+                        <option value="1">Yes</option>
+                    </select>
+                </div>
+            </div>
 
-            <label>Ultrasound Image (optional - for multimodal prediction)</label>
-            <input type="file" name="ultrasound" accept="image/*">
+            <div class="image-upload-box">
+                <label for="ultrasound-input"><strong>Ultrasound Scan Image</strong> <span class="optional-badge">Optional — for Multimodal Fusion</span></label>
+                <p class="upload-hint">Upload pelvic ultrasound scan (.jpg, .jpeg, .png). If provided, EfficientNetB0 CNN + Grad-CAM heatmap will be fused with the clinical model.</p>
+                <input type="file" id="ultrasound-input" name="ultrasound" accept="image/*">
+                
+                <div id="image-preview-container" class="image-preview-container" style="display:none;">
+                    <img id="image-preview" src="#" alt="Ultrasound Preview">
+                    <div class="image-preview-info">
+                        <span id="preview-filename" class="preview-filename"></span>
+                        <button type="button" id="remove-image-btn" class="btn-remove">Remove Image</button>
+                    </div>
+                </div>
+            </div>
 
-            <button type="submit" class="btn">Predict</button>
+            <button type="submit" id="submit-btn" class="btn btn-primary">
+                <span id="btn-text">Run Multimodal Screening</span>
+                <span id="btn-spinner" class="spinner" style="display:none;"></span>
+            </button>
         </form>
+
         <div id="result"></div>
     </div>
+
+    <footer class="footer">
+        <p><strong>Medical Disclaimer:</strong> This system is an AI-assisted screening research tool designed for educational and decision-support purposes. It does not constitute formal clinical diagnosis or replace professional consultation with a qualified medical specialist.</p>
+    </footer>
 
     <script src="{{ url_for('static', filename='js/predict.js') }}"></script>
 </body>

@@ -2,42 +2,73 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>My Lifestyle Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
+    <nav class="navbar">
+        <div class="nav-brand">🌸 PCOS AI Screening & Wellness</div>
+        <div class="nav-links">
+            <a href="/">Home</a>
+            <a href="/predict">Check Risk</a>
+            <a href="/dashboard" class="active">Lifestyle Dashboard</a>
+            <a href="/history">History</a>
+        </div>
+    </nav>
+
     <div class="container">
         <h1>My Personalized Lifestyle Dashboard</h1>
         <p class="subtitle">Phenotype: <strong>{{ rec.label }}</strong></p>
+        <p class="phenotype-summary-desc">{{ rec.description }}</p>
 
         <div id="notif-status" class="notif-banner">
-            <button id="enable-notif-btn" class="btn">🔔 Enable Reminders</button>
-            <p id="notif-help" style="margin-top:8px;">Turn on notifications to get a reminder automatically at each time slot (morning/afternoon/evening/night) while this tab is open — just like a food delivery app reminder.</p>
+            <div class="notif-banner-header">
+                <button id="enable-notif-btn" class="btn btn-sm">🔔 Enable Reminders</button>
+                <span id="notif-indicator" class="notif-pill-status">Status: Checking...</span>
+            </div>
+            <p id="notif-help" style="margin-top:8px;">Turn on notifications to get an automatic reminder at each time slot (morning/afternoon/evening/night) while this tab is open — just like a food delivery app reminder.</p>
         </div>
 
         <div class="nudge-grid">
-            <div class="nudge-card">
-                <h3>🌅 Morning <button class="test-btn" data-slot="morning">Test</button></h3>
+            <div class="nudge-card" id="card-morning">
+                <h3>
+                    <span>🌅 Morning</span>
+                    <button class="test-btn" data-slot="morning">Test</button>
+                </h3>
                 <p><strong>Food:</strong> {{ rec.morning.food }}</p>
-                <p><strong>Exercise:</strong> {{ rec.morning.exercise }}</p>
+                <p><strong>Exercise / Yoga:</strong> {{ rec.morning.exercise }}</p>
             </div>
-            <div class="nudge-card">
-                <h3>☀️ Afternoon <button class="test-btn" data-slot="afternoon">Test</button></h3>
+            <div class="nudge-card" id="card-afternoon">
+                <h3>
+                    <span>☀️ Afternoon</span>
+                    <button class="test-btn" data-slot="afternoon">Test</button>
+                </h3>
                 <p><strong>Food:</strong> {{ rec.afternoon.food }}</p>
-                <p><strong>Exercise:</strong> {{ rec.afternoon.exercise }}</p>
+                <p><strong>Exercise / Yoga:</strong> {{ rec.afternoon.exercise }}</p>
             </div>
-            <div class="nudge-card">
-                <h3>🌇 Evening <button class="test-btn" data-slot="evening">Test</button></h3>
+            <div class="nudge-card" id="card-evening">
+                <h3>
+                    <span>🌇 Evening</span>
+                    <button class="test-btn" data-slot="evening">Test</button>
+                </h3>
                 <p><strong>Food:</strong> {{ rec.evening.food }}</p>
-                <p><strong>Exercise:</strong> {{ rec.evening.exercise }}</p>
+                <p><strong>Exercise / Yoga:</strong> {{ rec.evening.exercise }}</p>
             </div>
-            <div class="nudge-card">
-                <h3>🌙 Night <button class="test-btn" data-slot="night">Test</button></h3>
+            <div class="nudge-card" id="card-night">
+                <h3>
+                    <span>🌙 Night</span>
+                    <button class="test-btn" data-slot="night">Test</button>
+                </h3>
                 <p><strong>Food:</strong> {{ rec.night.food }}</p>
-                <p><strong>Exercise:</strong> {{ rec.night.exercise }}</p>
+                <p><strong>Exercise / Yoga:</strong> {{ rec.night.exercise }}</p>
             </div>
         </div>
     </div>
+
+    <footer class="footer">
+        <p><strong>Medical Disclaimer:</strong> This system is an AI-assisted screening research tool designed for educational and decision-support purposes. It does not constitute formal clinical diagnosis or replace professional consultation with a qualified medical specialist.</p>
+    </footer>
 
     <script>
         // The recommendation data for this user's phenotype, passed from Flask
@@ -53,18 +84,77 @@
             morning:   { start: 6,  end: 11 },
             afternoon: { start: 12, end: 16 },
             evening:   { start: 17, end: 20 },
-            night:     { start: 21, end: 23 }
+            night:     { start: 21, end: 5 } // 21:00 through 05:59
         };
+
+        function getCurrentSlot() {
+            const hour = new Date().getHours();
+            if (hour >= 6 && hour <= 11) return 'morning';
+            if (hour >= 12 && hour <= 16) return 'afternoon';
+            if (hour >= 17 && hour <= 20) return 'evening';
+            return 'night';
+        }
+
+        function highlightActiveSlot() {
+            const current = getCurrentSlot();
+            ['morning', 'afternoon', 'evening', 'night'].forEach(slot => {
+                const card = document.getElementById(`card-${slot}`);
+                if (card) {
+                    if (slot === current) {
+                        card.classList.add('active-slot');
+                        if (!card.querySelector('.slot-badge-active')) {
+                            const badge = document.createElement('span');
+                            badge.className = 'slot-badge-active';
+                            badge.textContent = 'Active Now';
+                            const h3 = card.querySelector('h3 span');
+                            if (h3) h3.appendChild(badge);
+                        }
+                    } else {
+                        card.classList.remove('active-slot');
+                        const badge = card.querySelector('.slot-badge-active');
+                        if (badge) badge.remove();
+                    }
+                }
+            });
+        }
+
+        function updateNotifStatusUI() {
+            const btn = document.getElementById('enable-notif-btn');
+            const indicator = document.getElementById('notif-indicator');
+            const help = document.getElementById('notif-help');
+            if (!("Notification" in window)) {
+                indicator.textContent = "Not Supported";
+                indicator.className = "notif-pill-status notif-pill-warning";
+                btn.disabled = true;
+                return;
+            }
+            if (Notification.permission === "granted") {
+                indicator.textContent = "Reminders Active";
+                indicator.className = "notif-pill-status notif-pill-active";
+                btn.textContent = "🔔 Reminders Enabled";
+                btn.disabled = true;
+                help.textContent = "Reminders are ON. You'll receive automatic recommendations during each time slot while this tab is open.";
+            } else if (Notification.permission === "denied") {
+                indicator.textContent = "Blocked in Browser";
+                indicator.className = "notif-pill-status notif-pill-warning";
+                btn.disabled = true;
+                help.textContent = "Browser notifications are blocked. You can still trigger recommendations instantly using the 'Test' buttons below.";
+            } else {
+                indicator.textContent = "Ready to Enable";
+                indicator.className = "notif-pill-status";
+            }
+        }
 
         function sendNotification(slotName) {
             const slot = recData[slotName];
             const label = slotName.charAt(0).toUpperCase() + slotName.slice(1);
             if (Notification.permission === "granted") {
-                new Notification(`${label} Reminder 🔔`, {
+                new Notification(`${label} PCOS Lifestyle Reminder 🔔`, {
                     body: `Food: ${slot.food}\nExercise: ${slot.exercise}`,
+                    icon: "🌸"
                 });
             } else {
-                alert(`${label} Reminder\n\nFood: ${slot.food}\nExercise: ${slot.exercise}`);
+                alert(`${label} PCOS Lifestyle Reminder\n\nFood: ${slot.food}\nExercise: ${slot.exercise}`);
             }
         }
 
@@ -75,13 +165,7 @@
                 return;
             }
             Notification.requestPermission().then(function (permission) {
-                if (permission === "granted") {
-                    document.getElementById('notif-help').textContent =
-                        "Reminders are ON. You'll get a notification automatically during each time slot while this tab stays open.";
-                } else {
-                    document.getElementById('notif-help').textContent =
-                        "Notifications were blocked. You can still use the 'Test' buttons on each card below.";
-                }
+                updateNotifStatusUI();
             });
         });
 
@@ -95,24 +179,24 @@
 
         // Real automatic checker - fires once per slot per day, based on actual clock time
         function checkTimeAndNotify() {
+            highlightActiveSlot();
             const now = new Date();
-            const hour = now.getHours();
-            const todayKey = now.toISOString().split('T')[0]; // e.g. "2026-08-27"
+            const currentSlot = getCurrentSlot();
+            const todayKey = now.toISOString().split('T')[0];
 
-            for (const [slotName, window] of Object.entries(slotWindows)) {
-                if (hour >= window.start && hour <= window.end) {
-                    const storageKey = `notified_${slotName}_${todayKey}`;
-                    if (!localStorage.getItem(storageKey)) {
-                        sendNotification(slotName);
-                        localStorage.setItem(storageKey, "1");
-                    }
+            const storageKey = `notified_${currentSlot}_${todayKey}`;
+            if (!localStorage.getItem(storageKey)) {
+                if (Notification.permission === "granted") {
+                    sendNotification(currentSlot);
+                    localStorage.setItem(storageKey, "1");
                 }
             }
         }
 
-        // Check every 60 seconds while the dashboard tab is open
+        updateNotifStatusUI();
+        highlightActiveSlot();
         setInterval(checkTimeAndNotify, 60000);
-        checkTimeAndNotify(); // also check immediately on page load
+        checkTimeAndNotify();
     </script>
 </body>
 </html>

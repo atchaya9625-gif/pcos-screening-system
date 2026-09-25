@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
@@ -6,7 +6,7 @@ db = SQLAlchemy()
 
 def ist_now():
     """Returns the current time in India Standard Time (UTC+5:30)."""
-    return datetime.utcnow() + timedelta(hours=5, minutes=30)
+    return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=5, minutes=30)
 
 
 class PredictionHistory(db.Model):

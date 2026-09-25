@@ -85,7 +85,8 @@ def generate_shap_chart(mdl, X, features):
         plt.tight_layout()
 
         return fig_to_base64(fig)
-    except Exception:
+    except Exception as e:
+        print(f"SHAP explanation generation error: {e}")
         return None
 
 
@@ -135,7 +136,8 @@ def make_gradcam_overlay(img_model, img_array_norm):
         plt.tight_layout()
 
         return fig_to_base64(fig)
-    except Exception:
+    except Exception as e:
+        print(f"Grad-CAM overlay error: {e}")
         return None
 
 
@@ -161,7 +163,8 @@ def predict_image_risk(file_storage):
         risk = float(img_model.predict(img_array, verbose=0)[0][0])
         gradcam_img = make_gradcam_overlay(img_model, img_array)
         return risk, gradcam_img
-    except Exception:
+    except Exception as e:
+        print(f"Ultrasound image prediction error: {e}")
         return None, None
 
 
@@ -205,6 +208,14 @@ def predict():
             }
         except (ValueError, TypeError) as e:
             return jsonify({'error': f'Invalid input: {str(e)}'}), 400
+
+        # Validate non-negative inputs
+        if patient_data['Follicle No. (R)'] < 0 or patient_data['Follicle No. (L)'] < 0:
+            return jsonify({'error': 'Follicle counts cannot be negative.'}), 400
+        if patient_data['Cycle length(days)'] <= 0:
+            return jsonify({'error': 'Cycle length must be a positive number of days.'}), 400
+        if patient_data['AMH(ng/mL)'] < 0 or patient_data['PRL(ng/mL)'] < 0 or patient_data['FSH/LH'] <= 0:
+            return jsonify({'error': 'Hormone levels must be positive values.'}), 400
 
         # ---- Clinical model prediction ----
         X = pd.DataFrame([[patient_data[f] for f in features]], columns=features)

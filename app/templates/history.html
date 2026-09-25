@@ -2,51 +2,87 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Prediction History</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <style>
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 13px; }
-        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #f0dce6; }
-        th { background: #fff0f6; color: #a3336b; }
-        tr:hover { background: #fdf2f8; }
-        .badge { padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
-        .badge-positive { background: #ffe0ec; color: #d6336c; }
-        .badge-negative { background: #e0f8e9; color: #2b8a3e; }
-    </style>
 </head>
 <body>
+    <nav class="navbar">
+        <div class="nav-brand">🌸 PCOS AI Screening & Wellness</div>
+        <div class="nav-links">
+            <a href="/">Home</a>
+            <a href="/predict">Check Risk</a>
+            <a href="/dashboard">Lifestyle Dashboard</a>
+            <a href="/history" class="active">History</a>
+        </div>
+    </nav>
+
     <div class="container" style="max-width: 1000px;">
-        <h1>Prediction History</h1>
-        <p class="subtitle">All predictions made through this system, stored for tracking.</p>
+        <div class="history-header">
+            <div>
+                <h1>Prediction History</h1>
+                <p class="subtitle">All patient screening records stored in database (India Standard Time).</p>
+            </div>
+            {% if records %}
+            <div class="history-stats-badge">
+                <span>Total Screenings: <strong>{{ records|length }}</strong></span>
+            </div>
+            {% endif %}
+        </div>
 
         {% if records %}
-        <table>
-            <tr>
-                <th>Date/Time</th>
-                <th>Result</th>
-                <th>Risk Score</th>
-                <th>Modality</th>
-                <th>Phenotype</th>
-            </tr>
-            {% for r in records %}
-            <tr>
-                <td>{{ r.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
-                <td>
-                    {% if r.prediction == 'PCOS Detected' %}
-                        <span class="badge badge-positive">{{ r.prediction }}</span>
-                    {% else %}
-                        <span class="badge badge-negative">{{ r.prediction }}</span>
-                    {% endif %}
-                </td>
-                <td>{{ (r.risk_score * 100) | round(1) }}%</td>
-                <td>{{ r.modality_used }}</td>
-                <td>{{ r.phenotype }}</td>
-            </tr>
-            {% endfor %}
-        </table>
+        <div class="table-responsive">
+            <table class="history-table">
+                <thead>
+                    <tr>
+                        <th>Date / Time (IST)</th>
+                        <th>Screening Result</th>
+                        <th>Risk Score</th>
+                        <th>Modality Used</th>
+                        <th>Assigned Phenotype</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in records %}
+                    <tr>
+                        <td><strong>{{ r.timestamp.strftime('%Y-%m-%d %H:%M') }}</strong></td>
+                        <td>
+                            {% if r.prediction == 'PCOS Detected' %}
+                                <span class="badge badge-positive">⚠️ {{ r.prediction }}</span>
+                            {% else %}
+                                <span class="badge badge-negative">✅ {{ r.prediction }}</span>
+                            {% endif %}
+                        </td>
+                        <td><strong style="color: #a3336b;">{{ (r.risk_score * 100) | round(1) }}%</strong></td>
+                        <td>
+                            {% if 'multimodal' in r.modality_used %}
+                                <span class="badge badge-multimodal">🔬 Multimodal (Clinical + US)</span>
+                            {% else %}
+                                <span class="badge badge-clinical">📋 Clinical Only</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if r.phenotype and r.phenotype != 'N/A' %}
+                                <span class="badge-phenotype-pill">{{ r.phenotype }}</span>
+                            {% else %}
+                                <span style="color: #888;">N/A</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
         {% else %}
-        <p>No predictions yet. <a href="/predict">Make your first prediction</a>.</p>
+        <div class="empty-history-box">
+            <p>No screening predictions recorded yet.</p>
+            <a href="/predict" class="btn btn-primary" style="margin-top: 12px;">Run First Screening</a>
+        </div>
         {% endif %}
     </div>
+
+    <footer class="footer">
+        <p><strong>Medical Disclaimer:</strong> This system is an AI-assisted screening research tool designed for educational and decision-support purposes. It does not constitute formal clinical diagnosis or replace professional consultation with a qualified medical specialist.</p>
+    </footer>
 </body>
 </html>

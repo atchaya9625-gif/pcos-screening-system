@@ -2,18 +2,42 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PCOS Detection & Lifestyle Recommendation System</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-    <div class="container">
-        <h1>PCOS Detection & Personalized Lifestyle Recommendation System</h1>
-        <p>Explainable AI-based detection combined with a continuous, personalized lifestyle nudge engine.</p>
+    <nav class="navbar">
+        <div class="nav-brand">🌸 PCOS AI Screening & Wellness</div>
+        <div class="nav-links">
+            <a href="/" class="active">Home</a>
+            <a href="/predict">Check Risk</a>
+            <a href="/dashboard">Lifestyle Dashboard</a>
+            <a href="/history">History</a>
+        </div>
+    </nav>
+
+    <div class="container hero-container">
+        <div class="badge-tag">Clinical + Ultrasound Multimodal AI</div>
+        <h1>An Explainable Multimodal AI Framework for PCOS Screening</h1>
+        <p class="hero-desc">Screen for Polycystic Ovary Syndrome using clinical & hormonal biomarkers combined with pelvic ultrasound imaging. Powered by XGBoost, EfficientNetB0 CNN, SHAP feature attribution, Grad-CAM heatmaps, and continuous phenotype-tailored lifestyle recommendations.</p>
+        
+        <div class="feature-pills">
+            <div class="pill">🔬 92.7% Clinical Accuracy (12 MI Features)</div>
+            <div class="pill">🖼️ Deep Learning Ultrasound CNN (85.2% Accuracy)</div>
+            <div class="pill">📊 Transparent SHAP & Grad-CAM</div>
+            <div class="pill">⏰ Timed Food & Yoga Recommendations</div>
+        </div>
+
         <div class="cta-buttons">
-            <a href="/predict" class="btn">Check PCOS Risk</a>
-            <a href="/dashboard" class="btn btn-secondary">View My Dashboard</a>
-            <a href="/history" class="btn btn-secondary">Prediction History</a>
+            <a href="/predict" class="btn btn-primary">Start Screening</a>
+            <a href="/dashboard" class="btn btn-secondary">My Lifestyle Dashboard</a>
+            <a href="/history" class="btn btn-outline">View History</a>
         </div>
     </div>
+
+    <footer class="footer">
+        <p><strong>Medical Disclaimer:</strong> This system is an AI-assisted screening research tool designed for educational and decision-support purposes. It does not constitute formal clinical diagnosis or replace professional consultation with a qualified medical specialist.</p>
+    </footer>
 </body>
 </html>
