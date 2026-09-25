@@ -4,8 +4,9 @@ numpy
 scikit-learn
 xgboost
 shap
-tensorflow
-opencv-python
+tensorflow-cpu
+opencv-python-headless
+Pillow
 openpyxl
 flask-sqlalchemy
 gunicorn
