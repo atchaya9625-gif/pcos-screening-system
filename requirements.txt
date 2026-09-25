@@ -4,6 +4,8 @@ numpy
 scikit-learn
 xgboost
 shap
+matplotlib
+joblib
 tensorflow-cpu
 opencv-python-headless
 Pillow
