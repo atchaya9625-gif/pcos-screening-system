@@ -147,8 +147,12 @@ def predict_image_risk(file_storage):
     (risk_probability, gradcam_base64_image_or_None).
     Returns (None, None) if no image model/file is available.
     """
+    if file_storage is None or file_storage.filename == "":
+        return None, None
+
     img_model = load_image_model()
-    if img_model is None or file_storage is None or file_storage.filename == "":
+
+    if img_model is None:
         return None, None
 
     from PIL import Image
