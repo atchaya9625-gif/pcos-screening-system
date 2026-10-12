@@ -5,7 +5,7 @@ from app.models import db
 
 def create_app():
     app = Flask(__name__)
-    app.config['SECRET_KEY'] = 'change-this-in-production'
+    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'pcos-ai-screening-secret-key-2026')
 
     # SQLite database - stored as a file inside the project folder
     basedir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

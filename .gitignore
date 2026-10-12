@@ -6,4 +6,4 @@ data/processed/
 .ipynb_checkpoints/
 venv/
 env/
-git add .
+node_modules/
