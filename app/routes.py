@@ -5,7 +5,9 @@ import joblib
 import numpy as np
 import pandas as pd
 import matplotlib
-matplotlib.use("Agg")  # non-interactive backend, safe for Flask
+
+# Set non-interactive matplotlib backend for headless server execution
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from flask import Blueprint, render_template, request, jsonify, session
 
@@ -15,22 +17,29 @@ from app.models import db, PredictionHistory
 main = Blueprint('main', __name__)
 
 # ============================================================
-# Load trained models + supporting files (once, at startup)
+# Paths & Model Configuration
 # ============================================================
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLINICAL_MODEL_PATH = os.path.join(BASE_DIR, "models", "pcos_clinical_model_v2.pkl")
 FEATURES_PATH = os.path.join(BASE_DIR, "models", "selected_features_v2.pkl")
-IMAGE_MODEL_PATH = os.path.join(BASE_DIR, "models", "pcos_image_model.keras")
+KERAS_MODEL_PATH = os.path.join(BASE_DIR, "models", "pcos_image_model.keras")
+TFLITE_MODEL_PATH = os.path.join(BASE_DIR, "models", "pcos_image_model.tflite")
 
 IMG_SIZE = 160
 
+# Lazy global model singletons
 clinical_model = None
 selected_features = None
-image_model = None
+image_keras_model = None
+image_tflite_interpreter = None
 shap_explainer = None
 
 
+# ============================================================
+# Model Loaders
+# ============================================================
 def load_clinical_model():
+    """Load the trained XGBoost clinical model and 12 MI-selected features."""
     global clinical_model, selected_features
     if clinical_model is None and os.path.exists(CLINICAL_MODEL_PATH):
         clinical_model = joblib.load(CLINICAL_MODEL_PATH)
@@ -39,14 +48,45 @@ def load_clinical_model():
 
 
 def load_image_model():
-    global image_model
-    if image_model is None and os.path.exists(IMAGE_MODEL_PATH):
-        import tensorflow as tf
-        image_model = tf.keras.models.load_model(IMAGE_MODEL_PATH)
-    return image_model
+    """
+    Load the ultrasound deep learning model.
+    Tries TensorFlow/Keras model first (enables Grad-CAM explainability).
+    Falls back to LiteRT / TFLite interpreter if TensorFlow is unavailable.
+    """
+    global image_keras_model, image_tflite_interpreter
+
+    # 1. Try Keras model for full inference + Grad-CAM
+    if image_keras_model is None and os.path.exists(KERAS_MODEL_PATH):
+        try:
+            import tensorflow as tf
+            # Suppress unnecessary verbose logging
+            tf.get_logger().setLevel('ERROR')
+            image_keras_model = tf.keras.models.load_model(KERAS_MODEL_PATH)
+            return image_keras_model, "keras"
+        except Exception as e:
+            print(f"[Image Model] TensorFlow/Keras load error: {e}. Attempting TFLite fallback...")
+
+    if image_keras_model is not None:
+        return image_keras_model, "keras"
+
+    # 2. Fallback to lightweight TFLite model if available
+    if image_tflite_interpreter is None and os.path.exists(TFLITE_MODEL_PATH):
+        try:
+            from ai_edge_litert.interpreter import Interpreter
+            image_tflite_interpreter = Interpreter(model_path=TFLITE_MODEL_PATH)
+            image_tflite_interpreter.allocate_tensors()
+            return image_tflite_interpreter, "tflite"
+        except Exception as e:
+            print(f"[Image Model] TFLite load error: {e}")
+
+    if image_tflite_interpreter is not None:
+        return image_tflite_interpreter, "tflite"
+
+    return None, None
 
 
 def get_shap_explainer(mdl):
+    """Retrieve or initialize the TreeExplainer for the XGBoost model."""
     global shap_explainer
     if shap_explainer is None:
         import shap
@@ -55,7 +95,7 @@ def get_shap_explainer(mdl):
 
 
 def fig_to_base64(fig):
-    """Convert a matplotlib figure to a base64 data URI string."""
+    """Convert a matplotlib figure to a base64 PNG data URI string."""
     buf = io.BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight", dpi=100)
     plt.close(fig)
@@ -64,34 +104,40 @@ def fig_to_base64(fig):
     return f"data:image/png;base64,{encoded}"
 
 
+# ============================================================
+# Explainable AI (XAI): SHAP & Grad-CAM
+# ============================================================
 def generate_shap_chart(mdl, X, features):
-    """Generate a SHAP feature-contribution bar chart for a single prediction."""
+    """Generate a horizontal bar chart showing individual feature contributions via SHAP."""
     try:
-        import shap
         explainer = get_shap_explainer(mdl)
         shap_values = explainer.shap_values(X)
 
-        # shap_values shape: (1, n_features) for a single row
         values = shap_values[0] if shap_values.ndim == 2 else shap_values
         contributions = pd.Series(values, index=features).sort_values(key=abs)
 
+        # Pink/purple theme matching UI: #D6336C (increases PCOS risk), #6C5CE7 (protective/lowers risk)
         colors = ["#D6336C" if v > 0 else "#6C5CE7" for v in contributions.values]
 
         fig, ax = plt.subplots(figsize=(6, 4))
         ax.barh(contributions.index, contributions.values, color=colors)
-        ax.set_xlabel("Impact on PCOS risk (SHAP value)")
-        ax.set_title("Why this prediction? (Clinical features)")
-        ax.axvline(0, color="grey", linewidth=0.8)
+        ax.set_xlabel("Impact on PCOS risk (SHAP value)", fontsize=10, color="#3d2645")
+        ax.set_title("Why this prediction? (Clinical features)", fontsize=11, fontweight="bold", color="#a3336b")
+        ax.axvline(0, color="grey", linewidth=0.8, linestyle="--")
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
         plt.tight_layout()
 
         return fig_to_base64(fig)
     except Exception as e:
-        print(f"SHAP explanation generation error: {e}")
+        print(f"[XAI] SHAP generation error: {e}")
         return None
 
 
 def make_gradcam_overlay(img_model, img_array_norm):
-    """Generate a Grad-CAM heatmap overlay for the given preprocessed image."""
+    """
+    Generate Grad-CAM heatmap overlay for the ultrasound scan using EfficientNetB0's top_conv layer.
+    """
     try:
         import tensorflow as tf
         import cv2
@@ -113,8 +159,8 @@ def make_gradcam_overlay(img_model, img_array_norm):
 
         grads = tape.gradient(loss, conv_output)
         pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
-        conv_output = conv_output[0]
-        heatmap = conv_output @ pooled_grads[..., tf.newaxis]
+        conv_output_val = conv_output[0]
+        heatmap = conv_output_val @ pooled_grads[..., tf.newaxis]
         heatmap = tf.squeeze(heatmap)
         heatmap = tf.maximum(heatmap, 0) / (tf.math.reduce_max(heatmap) + 1e-8)
         heatmap = heatmap.numpy()
@@ -125,30 +171,38 @@ def make_gradcam_overlay(img_model, img_array_norm):
 
         original = img_array_norm[0]
         overlay = 0.6 * original + 0.4 * heatmap_colored
+        overlay = np.clip(overlay, 0.0, 1.0)
 
         fig, axes = plt.subplots(1, 2, figsize=(8, 4))
         axes[0].imshow(original)
-        axes[0].set_title("Ultrasound Image")
+        axes[0].set_title("Ultrasound Scan", fontsize=11, fontweight="bold", color="#3d2645")
         axes[0].axis("off")
-        axes[1].imshow(overlay)
-        axes[1].set_title("Grad-CAM: Model Focus Area")
-        axes[1].axis("off")
-        plt.tight_layout()
 
+        axes[1].imshow(overlay)
+        axes[1].set_title("Grad-CAM: Model Focus Area", fontsize=11, fontweight="bold", color="#a3336b")
+        axes[1].axis("off")
+
+        plt.tight_layout()
         return fig_to_base64(fig)
     except Exception as e:
-        print(f"Grad-CAM overlay error: {e}")
+        print(f"[XAI] Grad-CAM error: {e}")
         return None
 
 
+# ============================================================
+# Ultrasound Image Inference Pipeline
+# ============================================================
 def predict_image_risk(file_storage):
     """
-    Takes an uploaded image file, preprocesses it, and returns
-    (risk_probability, gradcam_base64_image_or_None).
-    Returns (None, None) if no image model/file is available.
+    Takes an uploaded ultrasound scan file, preprocesses it, and runs inference.
+    Returns (risk_score, gradcam_b64_or_None).
     """
-    img_model = load_image_model()
-    if img_model is None or file_storage is None or file_storage.filename == "":
+    if file_storage is None or not getattr(file_storage, 'filename', ''):
+        return None, None
+
+    model_obj, model_type = load_image_model()
+    if model_obj is None:
+        print("[Image Model] No ultrasound model available.")
         return None, None
 
     from PIL import Image
@@ -157,40 +211,52 @@ def predict_image_risk(file_storage):
         img_bytes = file_storage.read()
         img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
         img = img.resize((IMG_SIZE, IMG_SIZE))
-        img_array = np.array(img) / 255.0
+        img_array = np.array(img, dtype=np.float32) / 255.0
         img_array = np.expand_dims(img_array, axis=0)
 
-        risk = float(img_model.predict(img_array, verbose=0)[0][0])
-        gradcam_img = make_gradcam_overlay(img_model, img_array)
-        return risk, gradcam_img
+        if model_type == "keras":
+            raw_pred = model_obj.predict(img_array, verbose=0)
+            risk = float(raw_pred[0][0])
+            gradcam_img = make_gradcam_overlay(model_obj, img_array)
+            return risk, gradcam_img
+        elif model_type == "tflite":
+            input_details = model_obj.get_input_details()[0]
+            output_details = model_obj.get_output_details()[0]
+            model_obj.set_tensor(input_details["index"], img_array)
+            model_obj.invoke()
+            output = model_obj.get_tensor(output_details["index"])
+            risk = float(output[0][0])
+            return risk, None
     except Exception as e:
-        print(f"Ultrasound image prediction error: {e}")
+        print(f"[Image Model] Inference error: {e}")
         return None, None
 
 
+# ============================================================
+# Routes
+# ============================================================
 @main.route('/')
 def index():
-    """Landing page - project intro."""
+    """Landing page - project highlights, methodology overview, navigation."""
     return render_template('index.html')
 
 
 @main.route('/predict', methods=['GET', 'POST'])
 def predict():
     """
-    Stage 1+2: Multimodal detection with explainability.
-    GET  -> show the input form (clinical fields + ultrasound upload)
-    POST -> run clinical model + (optional) image model, fuse results,
-            generate SHAP + Grad-CAM explanations, return everything
+    Stage 1 + 2: Multimodal detection & explainability.
+    GET: Renders clinical input form with preset loader and optional image upload.
+    POST: Runs XGBoost + CNN fusion, produces SHAP & Grad-CAM, classifies phenotype,
+          stores record in SQLite, and returns structured JSON.
     """
     if request.method == 'POST':
         mdl, features = load_clinical_model()
-
         if mdl is None:
             return jsonify({
-                'error': 'Clinical model not found. Make sure pcos_clinical_model_v2.pkl is in the models/ folder.'
+                'error': 'Clinical model not loaded. Ensure pcos_clinical_model_v2.pkl is present in models/.'
             }), 500
 
-        # ---- Read form inputs (match the 12 selected clinical features) ----
+        # Parse form inputs
         try:
             patient_data = {
                 'Follicle No. (R)': float(request.form.get('follicle_r', 0)),
@@ -207,28 +273,40 @@ def predict():
                 'Pimples(Y/N)': int(request.form.get('pimples', 0)),
             }
         except (ValueError, TypeError) as e:
-            return jsonify({'error': f'Invalid input: {str(e)}'}), 400
+            return jsonify({'error': f'Invalid input format: {str(e)}'}), 400
 
-        # Validate non-negative inputs
+        # Input bounds validation
         if patient_data['Follicle No. (R)'] < 0 or patient_data['Follicle No. (L)'] < 0:
             return jsonify({'error': 'Follicle counts cannot be negative.'}), 400
+        if patient_data['Follicle No. (R)'] > 80 or patient_data['Follicle No. (L)'] > 80:
+            return jsonify({'error': 'Follicle counts must be within realistic clinical range (0 to 80).'}), 400
+
         if patient_data['Cycle length(days)'] <= 0:
             return jsonify({'error': 'Cycle length must be a positive number of days.'}), 400
+        if patient_data['Cycle length(days)'] < 15 or patient_data['Cycle length(days)'] > 180:
+            return jsonify({'error': 'Cycle length must be within realistic clinical range (15 to 180 days).'}), 400
+
         if patient_data['AMH(ng/mL)'] < 0 or patient_data['PRL(ng/mL)'] < 0 or patient_data['FSH/LH'] <= 0:
             return jsonify({'error': 'Hormone levels must be positive values.'}), 400
+        if patient_data['AMH(ng/mL)'] > 100:
+            return jsonify({'error': 'AMH level exceeds maximum realistic clinical range (0 to 100 ng/mL).'}), 400
+        if patient_data['PRL(ng/mL)'] > 300:
+            return jsonify({'error': 'Prolactin (PRL) level exceeds maximum realistic clinical range (0 to 300 ng/mL).'}), 400
+        if patient_data['FSH/LH'] > 30:
+            return jsonify({'error': 'FSH/LH ratio exceeds maximum realistic clinical range (0.01 to 30.0).'}), 400
 
-        # ---- Clinical model prediction ----
+        # 1. Clinical Model Prediction
         X = pd.DataFrame([[patient_data[f] for f in features]], columns=features)
         clinical_risk = float(mdl.predict_proba(X)[0][1])
 
-        # ---- SHAP explanation (Stage 2) ----
+        # 2. Clinical Explainability (SHAP)
         shap_chart = generate_shap_chart(mdl, X, features)
 
-        # ---- Image model prediction + Grad-CAM (if an ultrasound image was uploaded) ----
+        # 3. Ultrasound Model Prediction + Grad-CAM
         uploaded_file = request.files.get('ultrasound')
         image_risk, gradcam_chart = predict_image_risk(uploaded_file)
 
-        # ---- Decision-level fusion ----
+        # 4. Multimodal Decision-Level Fusion
         if image_risk is not None:
             final_risk = 0.5 * clinical_risk + 0.5 * image_risk
             modality_used = "multimodal (clinical + ultrasound)"
@@ -238,17 +316,17 @@ def predict():
 
         prediction = 1 if final_risk >= 0.5 else 0
 
-        # ---- Classify phenotype (for recommendation engine) ----
+        # 5. Phenotype Classification & Continuous Lifestyle Plan
         phenotype_input = dict(patient_data)
         phenotype_input['Cycle(R/I)'] = request.form.get('cycle', 'R')
         phenotype, scores = classify_phenotype(phenotype_input)
         recommendations = get_recommendations(phenotype) if prediction == 1 else None
 
-        # Remember this phenotype so the dashboard can show it later
+        # Cache phenotype in session for dashboard access
         if recommendations:
             session['last_phenotype'] = phenotype
 
-        # ---- Save this prediction to the database ----
+        # 6. Database Persistence (India Standard Time)
         try:
             record = PredictionHistory(
                 follicle_r=patient_data['Follicle No. (R)'],
@@ -273,9 +351,9 @@ def predict():
             db.session.add(record)
             db.session.commit()
         except Exception as db_error:
-            # Don't let a database issue break the prediction response
-            print(f"Warning: could not save prediction to database: {db_error}")
+            print(f"[Database] Warning: could not save prediction: {db_error}")
 
+        # 7. Construct Structured JSON Response
         result = {
             'prediction': 'PCOS Detected' if prediction == 1 else 'No PCOS Detected',
             'risk_score': round(final_risk, 3),
@@ -285,7 +363,11 @@ def predict():
             'shap_chart': shap_chart,
             'gradcam_chart': gradcam_chart,
             'phenotype': recommendations['label'] if recommendations else 'N/A',
-            'phenotype_description': recommendations['description'] if recommendations else 'No significant PCOS risk detected. General healthy lifestyle recommended.',
+            'phenotype_description': (
+                recommendations['description']
+                if recommendations
+                else 'No significant PCOS risk detected. General healthy lifestyle and routine health maintenance recommended.'
+            ),
             'recommendations': recommendations
         }
         return jsonify(result)
@@ -295,9 +377,7 @@ def predict():
 
 @main.route('/history')
 def history():
-    """
-    View all past predictions stored in the database.
-    """
+    """View all past screening predictions stored in the database."""
     records = PredictionHistory.query.order_by(PredictionHistory.timestamp.desc()).all()
     return render_template('history.html', records=records)
 
@@ -306,8 +386,8 @@ def history():
 def dashboard():
     """
     Stage 3: Personalized recommendation + nudge dashboard.
-    Uses the phenotype from the user's most recent /predict call (if any),
-    falling back to a default so the page always has something to show.
+    Uses the phenotype from the user's most recent /predict call,
+    falling back to a default so the page always displays actionable guidance.
     """
     phenotype = session.get('last_phenotype', 'insulin_resistant')
     recommendations = get_recommendations(phenotype)

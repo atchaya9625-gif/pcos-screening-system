@@ -29,7 +29,35 @@ const presetNormal = {
     fast_food: '0'
 };
 
-function fillPreset(data) {
+function hideValidationBanner() {
+    const banner = document.getElementById('validation-banner');
+    if (banner) {
+        banner.style.display = 'none';
+        banner.innerHTML = '';
+    }
+}
+
+function showValidationError(message, fieldId = null) {
+    const banner = document.getElementById('validation-banner');
+    if (banner) {
+        banner.innerHTML = `<span>⚠️ <strong>Input Notice:</strong> ${message}</span>`;
+        banner.style.display = 'flex';
+        banner.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else {
+        alert(message);
+    }
+    if (fieldId) {
+        const el = document.getElementById(fieldId);
+        if (el) {
+            el.focus();
+            el.classList.add('input-error');
+            setTimeout(() => el.classList.remove('input-error'), 3000);
+        }
+    }
+}
+
+function fillPreset(data, btnElement = null) {
+    hideValidationBanner();
     document.getElementById('f_follicle_r').value = data.follicle_r;
     document.getElementById('f_follicle_l').value = data.follicle_l;
     document.getElementById('f_cycle').value = data.cycle;
@@ -42,12 +70,18 @@ function fillPreset(data) {
     document.getElementById('f_skin_darkening').value = data.skin_darkening;
     document.getElementById('f_pimples').value = data.pimples;
     document.getElementById('f_fast_food').value = data.fast_food;
+
+    if (btnElement) {
+        const originalText = btnElement.textContent;
+        btnElement.textContent = "✓ Data Loaded!";
+        setTimeout(() => { btnElement.textContent = originalText; }, 1200);
+    }
 }
 
 const btnPcos = document.getElementById('btn-preset-pcos');
 const btnNormal = document.getElementById('btn-preset-normal');
-if (btnPcos) btnPcos.addEventListener('click', () => fillPreset(presetPCOS));
-if (btnNormal) btnNormal.addEventListener('click', () => fillPreset(presetNormal));
+if (btnPcos) btnPcos.addEventListener('click', () => fillPreset(presetPCOS, btnPcos));
+if (btnNormal) btnNormal.addEventListener('click', () => fillPreset(presetNormal, btnNormal));
 
 // --- Live Ultrasound Image Preview ---
 const ultrasoundInput = document.getElementById('ultrasound-input');
@@ -61,11 +95,12 @@ if (ultrasoundInput) {
         const file = this.files && this.files[0];
         if (file) {
             if (!file.type.startsWith('image/')) {
-                alert('Please select a valid image file (.jpg, .jpeg, .png).');
+                showValidationError('Please select a valid image file (.jpg, .jpeg, .png).');
                 this.value = '';
                 previewContainer.style.display = 'none';
                 return;
             }
+            hideValidationBanner();
             const reader = new FileReader();
             reader.onload = function (e) {
                 previewImg.src = e.target.result;
@@ -90,6 +125,7 @@ if (removeImageBtn) {
 // --- Form Submission & Multimodal Analysis ---
 document.getElementById('predict-form').addEventListener('submit', async function (e) {
     e.preventDefault();
+    hideValidationBanner();
 
     // Client-side Validation
     const follicleR = parseFloat(document.getElementById('f_follicle_r').value);
@@ -99,16 +135,57 @@ document.getElementById('predict-form').addEventListener('submit', async functio
     const prl = parseFloat(document.getElementById('f_prl').value);
     const fshLh = parseFloat(document.getElementById('f_fsh_lh').value);
 
-    if (isNaN(follicleR) || follicleR < 0 || isNaN(follicleL) || follicleL < 0) {
-        alert('Follicle counts cannot be negative numbers.');
+    if (isNaN(follicleR) || follicleR < 0) {
+        showValidationError('Right follicle count cannot be negative.', 'f_follicle_r');
         return;
     }
+    if (follicleR > 80) {
+        showValidationError('Right follicle count is unusually high (must be <= 80).', 'f_follicle_r');
+        return;
+    }
+
+    if (isNaN(follicleL) || follicleL < 0) {
+        showValidationError('Left follicle count cannot be negative.', 'f_follicle_l');
+        return;
+    }
+    if (follicleL > 80) {
+        showValidationError('Left follicle count is unusually high (must be <= 80).', 'f_follicle_l');
+        return;
+    }
+
     if (isNaN(cycleLength) || cycleLength <= 0) {
-        alert('Cycle length must be a positive number of days.');
+        showValidationError('Cycle length must be a positive number of days.', 'f_cycle_length');
         return;
     }
-    if (isNaN(amh) || amh < 0 || isNaN(prl) || prl < 0 || isNaN(fshLh) || fshLh <= 0) {
-        alert('Hormone values must be valid positive numbers.');
+    if (cycleLength < 15 || cycleLength > 180) {
+        showValidationError('Cycle length must be within realistic clinical range (15 to 180 days).', 'f_cycle_length');
+        return;
+    }
+
+    if (isNaN(amh) || amh < 0) {
+        showValidationError('AMH level must be a positive value.', 'f_amh');
+        return;
+    }
+    if (amh > 100) {
+        showValidationError('AMH level exceeds realistic clinical range (0 to 100 ng/mL).', 'f_amh');
+        return;
+    }
+
+    if (isNaN(prl) || prl < 0) {
+        showValidationError('Prolactin (PRL) level must be a positive value.', 'f_prl');
+        return;
+    }
+    if (prl > 300) {
+        showValidationError('Prolactin (PRL) level exceeds realistic clinical range (0 to 300 ng/mL).', 'f_prl');
+        return;
+    }
+
+    if (isNaN(fshLh) || fshLh <= 0) {
+        showValidationError('FSH / LH ratio must be a positive value greater than zero.', 'f_fsh_lh');
+        return;
+    }
+    if (fshLh > 30) {
+        showValidationError('FSH / LH ratio exceeds realistic clinical range (0.01 to 30.0).', 'f_fsh_lh');
         return;
     }
 
@@ -126,7 +203,7 @@ document.getElementById('predict-form').addEventListener('submit', async functio
         <div style="text-align: center; padding: 25px;">
             <div class="spinner" style="width: 28px; height: 28px; border-color: rgba(214, 51, 132, 0.2); border-top-color: #d63384; margin: 0 auto 12px auto;"></div>
             <p style="color: #a3336b; font-weight: 600;">Running AI screening & computing SHAP/Grad-CAM explanations...</p>
-            <p style="color: #7e6c7c; font-size: 0.85rem;">This may take 4-8 seconds for multimodal feature attribution.</p>
+            <p style="color: #7e6c7c; font-size: 0.85rem;">This may take 3-6 seconds for multimodal feature attribution.</p>
         </div>
     `;
 
