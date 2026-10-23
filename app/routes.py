@@ -1,12 +1,16 @@
 import os
 import io
+import gc
 import base64
 import joblib
+import traceback
 import numpy as np
 import pandas as pd
 import matplotlib
 
-# Set non-interactive matplotlib backend for headless server execution
+# Optimize TensorFlow and Matplotlib for headless cloud containers
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from flask import Blueprint, render_template, request, jsonify, session
@@ -51,7 +55,7 @@ def load_image_model():
     """
     Load the ultrasound deep learning model.
     Tries TensorFlow/Keras model first (enables Grad-CAM explainability).
-    Falls back to LiteRT / TFLite interpreter if TensorFlow is unavailable.
+    Falls back to LiteRT / TFLite interpreter if TensorFlow is unavailable or encounters memory limits.
     """
     global image_keras_model, image_tflite_interpreter
 
@@ -59,7 +63,6 @@ def load_image_model():
     if image_keras_model is None and os.path.exists(KERAS_MODEL_PATH):
         try:
             import tensorflow as tf
-            # Suppress unnecessary verbose logging
             tf.get_logger().setLevel('ERROR')
             image_keras_model = tf.keras.models.load_model(KERAS_MODEL_PATH)
             return image_keras_model, "keras"
@@ -128,7 +131,9 @@ def generate_shap_chart(mdl, X, features):
         ax.spines['right'].set_visible(False)
         plt.tight_layout()
 
-        return fig_to_base64(fig)
+        b64 = fig_to_base64(fig)
+        plt.close('all')
+        return b64
     except Exception as e:
         print(f"[XAI] SHAP generation error: {e}")
         return None
@@ -183,7 +188,10 @@ def make_gradcam_overlay(img_model, img_array_norm):
         axes[1].axis("off")
 
         plt.tight_layout()
-        return fig_to_base64(fig)
+        b64 = fig_to_base64(fig)
+        plt.close('all')
+        gc.collect()
+        return b64
     except Exception as e:
         print(f"[XAI] Grad-CAM error: {e}")
         return None
@@ -241,6 +249,31 @@ def index():
     return render_template('index.html')
 
 
+@main.route('/health')
+def health():
+    """Diagnostic endpoint to inspect runtime health, models, and dependencies."""
+    status = {
+        'status': 'ok',
+        'clinical_model': os.path.exists(CLINICAL_MODEL_PATH),
+        'features_file': os.path.exists(FEATURES_PATH),
+        'keras_model': os.path.exists(KERAS_MODEL_PATH),
+        'tflite_model': os.path.exists(TFLITE_MODEL_PATH),
+    }
+    try:
+        import tensorflow as tf
+        status['tensorflow_version'] = tf.__version__
+    except Exception as e:
+        status['tensorflow_error'] = str(e)
+
+    try:
+        from ai_edge_litert.interpreter import Interpreter
+        status['litert_available'] = True
+    except Exception as e:
+        status['litert_error'] = str(e)
+
+    return jsonify(status)
+
+
 @main.route('/predict', methods=['GET', 'POST'])
 def predict():
     """
@@ -250,127 +283,133 @@ def predict():
           stores record in SQLite, and returns structured JSON.
     """
     if request.method == 'POST':
-        mdl, features = load_clinical_model()
-        if mdl is None:
-            return jsonify({
-                'error': 'Clinical model not loaded. Ensure pcos_clinical_model_v2.pkl is present in models/.'
-            }), 500
-
-        # Parse form inputs
         try:
-            patient_data = {
-                'Follicle No. (R)': float(request.form.get('follicle_r', 0)),
-                'Follicle No. (L)': float(request.form.get('follicle_l', 0)),
-                'Skin darkening (Y/N)': int(request.form.get('skin_darkening', 0)),
-                'hair growth(Y/N)': int(request.form.get('hair_growth', 0)),
-                'Weight gain(Y/N)': int(request.form.get('weight_gain', 0)),
-                'Cycle(R/I)': 1 if request.form.get('cycle', 'R') == 'I' else 0,
-                'Cycle length(days)': float(request.form.get('cycle_length', 28)),
-                'AMH(ng/mL)': float(request.form.get('amh', 3.0)),
-                'PRL(ng/mL)': float(request.form.get('prl', 15.0)),
-                'FSH/LH': float(request.form.get('fsh_lh', 1.5)),
-                'Fast food (Y/N)': int(request.form.get('fast_food', 0)),
-                'Pimples(Y/N)': int(request.form.get('pimples', 0)),
+            mdl, features = load_clinical_model()
+            if mdl is None:
+                return jsonify({
+                    'error': 'Clinical model not loaded. Ensure pcos_clinical_model_v2.pkl is present in models/.'
+                }), 500
+
+            # Parse form inputs
+            try:
+                patient_data = {
+                    'Follicle No. (R)': float(request.form.get('follicle_r', 0)),
+                    'Follicle No. (L)': float(request.form.get('follicle_l', 0)),
+                    'Skin darkening (Y/N)': int(request.form.get('skin_darkening', 0)),
+                    'hair growth(Y/N)': int(request.form.get('hair_growth', 0)),
+                    'Weight gain(Y/N)': int(request.form.get('weight_gain', 0)),
+                    'Cycle(R/I)': 1 if request.form.get('cycle', 'R') == 'I' else 0,
+                    'Cycle length(days)': float(request.form.get('cycle_length', 28)),
+                    'AMH(ng/mL)': float(request.form.get('amh', 3.0)),
+                    'PRL(ng/mL)': float(request.form.get('prl', 15.0)),
+                    'FSH/LH': float(request.form.get('fsh_lh', 1.5)),
+                    'Fast food (Y/N)': int(request.form.get('fast_food', 0)),
+                    'Pimples(Y/N)': int(request.form.get('pimples', 0)),
+                }
+            except (ValueError, TypeError) as e:
+                return jsonify({'error': f'Invalid input format: {str(e)}'}), 400
+
+            # Input bounds validation
+            if patient_data['Follicle No. (R)'] < 0 or patient_data['Follicle No. (L)'] < 0:
+                return jsonify({'error': 'Follicle counts cannot be negative.'}), 400
+            if patient_data['Follicle No. (R)'] > 80 or patient_data['Follicle No. (L)'] > 80:
+                return jsonify({'error': 'Follicle counts must be within realistic clinical range (0 to 80).'}), 400
+
+            if patient_data['Cycle length(days)'] <= 0:
+                return jsonify({'error': 'Cycle length must be a positive number of days.'}), 400
+            if patient_data['Cycle length(days)'] < 15 or patient_data['Cycle length(days)'] > 180:
+                return jsonify({'error': 'Cycle length must be within realistic clinical range (15 to 180 days).'}), 400
+
+            if patient_data['AMH(ng/mL)'] < 0 or patient_data['PRL(ng/mL)'] < 0 or patient_data['FSH/LH'] <= 0:
+                return jsonify({'error': 'Hormone levels must be positive values.'}), 400
+            if patient_data['AMH(ng/mL)'] > 100:
+                return jsonify({'error': 'AMH level exceeds maximum realistic clinical range (0 to 100 ng/mL).'}), 400
+            if patient_data['PRL(ng/mL)'] > 300:
+                return jsonify({'error': 'Prolactin (PRL) level exceeds maximum realistic clinical range (0 to 300 ng/mL).'}), 400
+            if patient_data['FSH/LH'] > 30:
+                return jsonify({'error': 'FSH/LH ratio exceeds maximum realistic clinical range (0.01 to 30.0).'}), 400
+
+            # 1. Clinical Model Prediction
+            X = pd.DataFrame([[patient_data[f] for f in features]], columns=features)
+            clinical_risk = float(mdl.predict_proba(X)[0][1])
+
+            # 2. Clinical Explainability (SHAP)
+            shap_chart = generate_shap_chart(mdl, X, features)
+
+            # 3. Ultrasound Model Prediction + Grad-CAM
+            uploaded_file = request.files.get('ultrasound')
+            image_risk, gradcam_chart = predict_image_risk(uploaded_file)
+
+            # 4. Multimodal Decision-Level Fusion
+            if image_risk is not None:
+                final_risk = 0.5 * clinical_risk + 0.5 * image_risk
+                modality_used = "multimodal (clinical + ultrasound)"
+            else:
+                final_risk = clinical_risk
+                modality_used = "clinical only (no image uploaded)"
+
+            prediction = 1 if final_risk >= 0.5 else 0
+
+            # 5. Phenotype Classification & Continuous Lifestyle Plan
+            phenotype_input = dict(patient_data)
+            phenotype_input['Cycle(R/I)'] = request.form.get('cycle', 'R')
+            phenotype, scores = classify_phenotype(phenotype_input)
+            recommendations = get_recommendations(phenotype) if prediction == 1 else None
+
+            # Cache phenotype in session for dashboard access
+            if recommendations:
+                session['last_phenotype'] = phenotype
+
+            # 6. Database Persistence (India Standard Time)
+            try:
+                record = PredictionHistory(
+                    follicle_r=patient_data['Follicle No. (R)'],
+                    follicle_l=patient_data['Follicle No. (L)'],
+                    skin_darkening=patient_data['Skin darkening (Y/N)'],
+                    hair_growth=patient_data['hair growth(Y/N)'],
+                    weight_gain=patient_data['Weight gain(Y/N)'],
+                    cycle=request.form.get('cycle', 'R'),
+                    cycle_length=patient_data['Cycle length(days)'],
+                    amh=patient_data['AMH(ng/mL)'],
+                    prl=patient_data['PRL(ng/mL)'],
+                    fsh_lh=patient_data['FSH/LH'],
+                    fast_food=patient_data['Fast food (Y/N)'],
+                    pimples=patient_data['Pimples(Y/N)'],
+                    prediction='PCOS Detected' if prediction == 1 else 'No PCOS Detected',
+                    risk_score=round(final_risk, 3),
+                    clinical_risk_score=round(clinical_risk, 3),
+                    image_risk_score=round(image_risk, 3) if image_risk is not None else None,
+                    modality_used=modality_used,
+                    phenotype=recommendations['label'] if recommendations else 'N/A',
+                )
+                db.session.add(record)
+                db.session.commit()
+            except Exception as db_error:
+                print(f"[Database] Warning: could not save prediction: {db_error}")
+
+            # 7. Construct Structured JSON Response
+            result = {
+                'prediction': 'PCOS Detected' if prediction == 1 else 'No PCOS Detected',
+                'risk_score': round(final_risk, 3),
+                'clinical_risk_score': round(clinical_risk, 3),
+                'image_risk_score': round(image_risk, 3) if image_risk is not None else None,
+                'modality_used': modality_used,
+                'shap_chart': shap_chart,
+                'gradcam_chart': gradcam_chart,
+                'phenotype': recommendations['label'] if recommendations else 'N/A',
+                'phenotype_description': (
+                    recommendations['description']
+                    if recommendations
+                    else 'No significant PCOS risk detected. General healthy lifestyle and routine health maintenance recommended.'
+                ),
+                'recommendations': recommendations
             }
-        except (ValueError, TypeError) as e:
-            return jsonify({'error': f'Invalid input format: {str(e)}'}), 400
+            return jsonify(result)
 
-        # Input bounds validation
-        if patient_data['Follicle No. (R)'] < 0 or patient_data['Follicle No. (L)'] < 0:
-            return jsonify({'error': 'Follicle counts cannot be negative.'}), 400
-        if patient_data['Follicle No. (R)'] > 80 or patient_data['Follicle No. (L)'] > 80:
-            return jsonify({'error': 'Follicle counts must be within realistic clinical range (0 to 80).'}), 400
-
-        if patient_data['Cycle length(days)'] <= 0:
-            return jsonify({'error': 'Cycle length must be a positive number of days.'}), 400
-        if patient_data['Cycle length(days)'] < 15 or patient_data['Cycle length(days)'] > 180:
-            return jsonify({'error': 'Cycle length must be within realistic clinical range (15 to 180 days).'}), 400
-
-        if patient_data['AMH(ng/mL)'] < 0 or patient_data['PRL(ng/mL)'] < 0 or patient_data['FSH/LH'] <= 0:
-            return jsonify({'error': 'Hormone levels must be positive values.'}), 400
-        if patient_data['AMH(ng/mL)'] > 100:
-            return jsonify({'error': 'AMH level exceeds maximum realistic clinical range (0 to 100 ng/mL).'}), 400
-        if patient_data['PRL(ng/mL)'] > 300:
-            return jsonify({'error': 'Prolactin (PRL) level exceeds maximum realistic clinical range (0 to 300 ng/mL).'}), 400
-        if patient_data['FSH/LH'] > 30:
-            return jsonify({'error': 'FSH/LH ratio exceeds maximum realistic clinical range (0.01 to 30.0).'}), 400
-
-        # 1. Clinical Model Prediction
-        X = pd.DataFrame([[patient_data[f] for f in features]], columns=features)
-        clinical_risk = float(mdl.predict_proba(X)[0][1])
-
-        # 2. Clinical Explainability (SHAP)
-        shap_chart = generate_shap_chart(mdl, X, features)
-
-        # 3. Ultrasound Model Prediction + Grad-CAM
-        uploaded_file = request.files.get('ultrasound')
-        image_risk, gradcam_chart = predict_image_risk(uploaded_file)
-
-        # 4. Multimodal Decision-Level Fusion
-        if image_risk is not None:
-            final_risk = 0.5 * clinical_risk + 0.5 * image_risk
-            modality_used = "multimodal (clinical + ultrasound)"
-        else:
-            final_risk = clinical_risk
-            modality_used = "clinical only (no image uploaded)"
-
-        prediction = 1 if final_risk >= 0.5 else 0
-
-        # 5. Phenotype Classification & Continuous Lifestyle Plan
-        phenotype_input = dict(patient_data)
-        phenotype_input['Cycle(R/I)'] = request.form.get('cycle', 'R')
-        phenotype, scores = classify_phenotype(phenotype_input)
-        recommendations = get_recommendations(phenotype) if prediction == 1 else None
-
-        # Cache phenotype in session for dashboard access
-        if recommendations:
-            session['last_phenotype'] = phenotype
-
-        # 6. Database Persistence (India Standard Time)
-        try:
-            record = PredictionHistory(
-                follicle_r=patient_data['Follicle No. (R)'],
-                follicle_l=patient_data['Follicle No. (L)'],
-                skin_darkening=patient_data['Skin darkening (Y/N)'],
-                hair_growth=patient_data['hair growth(Y/N)'],
-                weight_gain=patient_data['Weight gain(Y/N)'],
-                cycle=request.form.get('cycle', 'R'),
-                cycle_length=patient_data['Cycle length(days)'],
-                amh=patient_data['AMH(ng/mL)'],
-                prl=patient_data['PRL(ng/mL)'],
-                fsh_lh=patient_data['FSH/LH'],
-                fast_food=patient_data['Fast food (Y/N)'],
-                pimples=patient_data['Pimples(Y/N)'],
-                prediction='PCOS Detected' if prediction == 1 else 'No PCOS Detected',
-                risk_score=round(final_risk, 3),
-                clinical_risk_score=round(clinical_risk, 3),
-                image_risk_score=round(image_risk, 3) if image_risk is not None else None,
-                modality_used=modality_used,
-                phenotype=recommendations['label'] if recommendations else 'N/A',
-            )
-            db.session.add(record)
-            db.session.commit()
-        except Exception as db_error:
-            print(f"[Database] Warning: could not save prediction: {db_error}")
-
-        # 7. Construct Structured JSON Response
-        result = {
-            'prediction': 'PCOS Detected' if prediction == 1 else 'No PCOS Detected',
-            'risk_score': round(final_risk, 3),
-            'clinical_risk_score': round(clinical_risk, 3),
-            'image_risk_score': round(image_risk, 3) if image_risk is not None else None,
-            'modality_used': modality_used,
-            'shap_chart': shap_chart,
-            'gradcam_chart': gradcam_chart,
-            'phenotype': recommendations['label'] if recommendations else 'N/A',
-            'phenotype_description': (
-                recommendations['description']
-                if recommendations
-                else 'No significant PCOS risk detected. General healthy lifestyle and routine health maintenance recommended.'
-            ),
-            'recommendations': recommendations
-        }
-        return jsonify(result)
+        except Exception as e:
+            trace = traceback.format_exc()
+            print(f"[Server Error in /predict]:\n{trace}")
+            return jsonify({'error': f'Internal analysis error: {str(e)}', 'trace': trace}), 500
 
     return render_template('predict.html')
 
